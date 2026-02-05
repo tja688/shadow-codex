@@ -9,6 +9,41 @@ import { IncrementalJsonlParser } from "./parser";
 import { FileParseState, PersistedStateV1, SessionInfo, ShadowEvent } from "./model";
 import { debounce, throttle } from "./utils";
 
+export interface DebugEvent {
+  ts: string;
+  source: string;
+  level: "info" | "warn" | "error";
+  message: string;
+  data?: Record<string, unknown>;
+}
+
+export interface StoreDebugSnapshot {
+  ts: string;
+  codexHome: string;
+  includeArchivedSessions: boolean;
+  watcherDebounceMs: number;
+  watcherActive: boolean;
+  watcherPaths: string[];
+  pendingFiles: number;
+  lastWatcherEvent?: { ts: string; type: string; filePath?: string };
+  sessionCount: number;
+  lastRescanAt?: string;
+  lastPoll?: {
+    ts: string;
+    filePath: string;
+    bytesRead: number;
+    parsed: number;
+    extracted: number;
+    truncated: boolean;
+    parseErrors: number;
+  };
+  totalAppended: number;
+  lastAppendCount?: number;
+  lastAppendAt?: string;
+  lastError?: string;
+  lastErrorAt?: string;
+}
+
 const PERSIST_KEY = "shadowCodex.state";
 
 class EventDeduper {
@@ -52,6 +87,7 @@ export class ShadowCodexStore {
   private flushInProgress = false;
 
   private persisted: PersistedStateV1;
+  private debugSnapshot: StoreDebugSnapshot;
 
   private onDidChangeSessionsEmitter = new vscode.EventEmitter<void>();
   readonly onDidChangeSessions = this.onDidChangeSessionsEmitter.event;
@@ -62,6 +98,9 @@ export class ShadowCodexStore {
   private onDidAppendEventsEmitter = new vscode.EventEmitter<ShadowEvent[]>();
   readonly onDidAppendEvents = this.onDidAppendEventsEmitter.event;
 
+  private onDidDebugEmitter = new vscode.EventEmitter<DebugEvent>();
+  readonly onDidDebug = this.onDidDebugEmitter.event;
+
   private requestPersistSave = debounce(() => this.savePersisted(), 500);
   private requestEmitSessions = throttle(() => this.onDidChangeSessionsEmitter.fire(), 500);
 
@@ -69,10 +108,16 @@ export class ShadowCodexStore {
     this.context = context;
     this.cfg = readConfig();
     this.persisted = this.loadPersisted();
+    this.debugSnapshot = this.buildDebugSnapshot();
   }
 
   refreshConfig(): void {
     this.cfg = readConfig();
+    this.updateDebugSnapshot({
+      codexHome: this.cfg.codexHome,
+      includeArchivedSessions: this.cfg.includeArchivedSessions,
+      watcherDebounceMs: this.cfg.watcherDebounceMs
+    });
   }
 
   async reloadAfterConfigChange(): Promise<void> {
@@ -97,6 +142,10 @@ export class ShadowCodexStore {
     return this.sessionsByKey.get(sessionKey);
   }
 
+  getDebugSnapshot(): StoreDebugSnapshot {
+    return this.debugSnapshot;
+  }
+
   async start(): Promise<void> {
     await this.rescanSessions();
     await this.startWatcher();
@@ -105,6 +154,8 @@ export class ShadowCodexStore {
   async stop(): Promise<void> {
     await this.watcher?.close();
     this.watcher = undefined;
+    this.updateDebugSnapshot({ watcherActive: false, watcherPaths: [], pendingFiles: this.pendingFiles.size });
+    this.emitDebug("watcher", "Watcher stopped");
   }
 
   async rescanSessions(): Promise<void> {
@@ -112,6 +163,8 @@ export class ShadowCodexStore {
     const { sessions } = await scanSessions(this.cfg.codexHome, this.cfg.includeArchivedSessions);
     this.sessions = sessions;
     this.sessionsByKey = new Map(sessions.map((s) => [s.sessionKey, s]));
+    this.updateDebugSnapshot({ sessionCount: sessions.length, lastRescanAt: new Date().toISOString() });
+    this.emitDebug("sessions", `Rescanned sessions (${sessions.length})`, { sessionCount: sessions.length });
     this.requestEmitSessions();
   }
 
@@ -155,22 +208,29 @@ export class ShadowCodexStore {
     await this.watcher?.close();
 
     const root = this.cfg.codexHome;
-    const watchPaths = [path.join(root, "sessions")];
-    if (this.cfg.includeArchivedSessions) watchPaths.push(path.join(root, "archived_sessions"));
+    const watchPaths = [path.join(root, "sessions", "**", "rollout-*.jsonl")];
+    if (this.cfg.includeArchivedSessions) watchPaths.push(path.join(root, "archived_sessions", "**", "rollout-*.jsonl"));
 
     this.watcher = chokidar.watch(watchPaths, {
       ignoreInitial: true,
-      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
-      ignored: (p) => !/rollout-.*\.jsonl$/i.test(p)
+      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 }
     });
 
-    this.watcher.on("add", (p) => this.enqueueFileChange(path.normalize(p)));
-    this.watcher.on("change", (p) => this.enqueueFileChange(path.normalize(p)));
+    this.watcher.on("add", (p) => this.enqueueFileChange("add", path.normalize(p)));
+    this.watcher.on("change", (p) => this.enqueueFileChange("change", path.normalize(p)));
+    this.updateDebugSnapshot({ watcherActive: true, watcherPaths: watchPaths, pendingFiles: this.pendingFiles.size });
+    this.emitDebug("watcher", "Watcher started", { paths: watchPaths });
   }
 
-  private enqueueFileChange(filePath: string): void {
+  private enqueueFileChange(kind: "add" | "change", filePath: string): void {
     if (!/rollout-.*\.jsonl$/i.test(filePath)) return;
     this.pendingFiles.add(filePath);
+    const ts = new Date().toISOString();
+    this.updateDebugSnapshot({
+      pendingFiles: this.pendingFiles.size,
+      lastWatcherEvent: { ts, type: kind, filePath }
+    });
+    this.emitDebug("watcher", `${kind} ${path.basename(filePath)}`, { filePath });
     this.scheduleFlushPendingFiles();
   }
 
@@ -192,6 +252,12 @@ export class ShadowCodexStore {
     try {
       const files = Array.from(this.pendingFiles);
       this.pendingFiles.clear();
+      const ts = new Date().toISOString();
+      this.updateDebugSnapshot({
+        pendingFiles: 0,
+        lastWatcherEvent: { ts, type: "flush", filePath: files[0] }
+      });
+      this.emitDebug("watcher", `Flush ${files.length} file(s)`, { count: files.length });
       for (const filePath of files) {
         await this.onFileChanged(filePath);
       }
@@ -225,6 +291,7 @@ export class ShadowCodexStore {
       }
 
       const state = this.getOrCreateFileState(filePath);
+      const prevOffset = state.byteOffset;
       const res = await this.parser.poll(filePath, state);
       this.fileStates.set(filePath, res.state);
 
@@ -240,12 +307,40 @@ export class ShadowCodexStore {
         }
       }
 
+      const parsedCount = res.events.length;
+      const parseErrors = res.events.filter((e) => (e.raw as any)?.type === "parse_error").length;
+      const bytesRead = Math.max(0, res.state.byteOffset - prevOffset);
+      this.updateDebugSnapshot({
+        lastPoll: {
+          ts: new Date().toISOString(),
+          filePath,
+          bytesRead,
+          parsed: parsedCount,
+          extracted: out.length,
+          truncated: res.truncated,
+          parseErrors
+        }
+      });
+      if (parsedCount > 0 || res.truncated || parseErrors > 0) {
+        this.emitDebug("parser", `Parsed ${parsedCount}, extracted ${out.length}`, {
+          filePath,
+          bytesRead,
+          parsed: parsedCount,
+          extracted: out.length,
+          truncated: res.truncated,
+          parseErrors
+        });
+      }
+
       if (out.length > 0) {
         const list = this.eventsBySessionKey.get(sessionKey) ?? [];
         list.push(...out);
         list.sort((a, b) => (a.ts ?? "").localeCompare(b.ts ?? "") || a.seq - b.seq);
         this.eventsBySessionKey.set(sessionKey, list);
         this.onDidAppendEventsEmitter.fire(out);
+        const total = this.debugSnapshot.totalAppended + out.length;
+        this.updateDebugSnapshot({ totalAppended: total, lastAppendCount: out.length, lastAppendAt: new Date().toISOString() });
+        this.emitDebug("events", `Appended ${out.length} event(s)`, { sessionKey, count: out.length, total });
       }
 
       const newestEventTs = out.reduce<string | undefined>((acc, e) => (!acc || (e.ts && e.ts > acc) ? e.ts : acc), undefined);
@@ -259,8 +354,13 @@ export class ShadowCodexStore {
       };
       this.requestPersistSave();
       if (updatedChanged) this.requestEmitSessions();
-    } catch (e) {
-      if (attempt >= maxAttempts) return;
+    } catch (e: any) {
+      if (attempt >= maxAttempts) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.updateDebugSnapshot({ lastError: msg, lastErrorAt: new Date().toISOString() });
+        this.emitDebug("parser", `Poll failed after ${maxAttempts} attempts`, { filePath, error: msg }, "error");
+        return;
+      }
       const delayMs = Math.min(5000, 200 * Math.pow(2, attempt));
       await new Promise((r) => setTimeout(r, delayMs));
       return this.pollFileWithRetry(filePath, attempt + 1);
@@ -303,6 +403,30 @@ export class ShadowCodexStore {
 
   schedulePersistSave(): void {
     this.requestPersistSave();
+  }
+
+  private buildDebugSnapshot(): StoreDebugSnapshot {
+    const ts = new Date().toISOString();
+    return {
+      ts,
+      codexHome: this.cfg.codexHome,
+      includeArchivedSessions: this.cfg.includeArchivedSessions,
+      watcherDebounceMs: this.cfg.watcherDebounceMs,
+      watcherActive: false,
+      watcherPaths: [],
+      pendingFiles: 0,
+      sessionCount: this.sessions.length,
+      totalAppended: 0
+    };
+  }
+
+  private updateDebugSnapshot(patch: Partial<StoreDebugSnapshot>): void {
+    this.debugSnapshot = { ...this.debugSnapshot, ...patch, ts: new Date().toISOString() };
+  }
+
+  private emitDebug(source: string, message: string, data?: Record<string, unknown>, level: "info" | "warn" | "error" = "info"): void {
+    const ts = new Date().toISOString();
+    this.onDidDebugEmitter.fire({ ts, source, level, message, data });
   }
 
   private getOrCreateDeduper(sessionKey: string): EventDeduper {

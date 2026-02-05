@@ -1,6 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { ShadowCodexStore } from "./store";
+import { DebugEvent, ShadowCodexStore, StoreDebugSnapshot } from "./store";
 import { Translator } from "./translation";
 import { buildFeedItems } from "./feed";
 import { readConfig } from "./config";
@@ -24,6 +24,7 @@ export class DashboardView implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
   private readonly disposables: vscode.Disposable[] = [];
   private state: DashboardState;
+  private debugSnapshot: StoreDebugSnapshot;
 
   private constructor(
     private readonly context: vscode.ExtensionContext,
@@ -31,6 +32,7 @@ export class DashboardView implements vscode.Disposable {
     private readonly translator: Translator
   ) {
     this.state = loadState(context);
+    this.debugSnapshot = store.getDebugSnapshot();
     this.createPanel();
     this.attachListeners();
   }
@@ -66,8 +68,15 @@ export class DashboardView implements vscode.Disposable {
 
     const trSub = this.translator.onDidTranslate((evt) => {
       this.postMessage({ type: "translationUpdate", payload: evt });
+      this.postDebugStatus();
     });
     this.disposables.push(trSub);
+
+    const dbgSub = this.store.onDidDebug((evt) => {
+      this.debugSnapshot = this.store.getDebugSnapshot();
+      this.postDebug(evt);
+    });
+    this.disposables.push(dbgSub);
   }
 
   private createPanel(): void {
@@ -98,11 +107,34 @@ export class DashboardView implements vscode.Disposable {
       state: this.state
     };
     this.postMessage({ type: "init", payload });
+    this.postDebugStatus();
   }
 
   private postMessage(message: unknown): void {
     if (!this.panel) return;
     void this.panel.webview.postMessage(message);
+  }
+
+  private postDebug(evt?: DebugEvent): void {
+    this.postMessage({
+      type: "debug",
+      payload: {
+        event: evt,
+        snapshot: this.debugSnapshot,
+        translation: this.translator.getStatus()
+      }
+    });
+  }
+
+  private postDebugStatus(): void {
+    this.debugSnapshot = this.store.getDebugSnapshot();
+    this.postMessage({
+      type: "debugStatus",
+      payload: {
+        snapshot: this.debugSnapshot,
+        translation: this.translator.getStatus()
+      }
+    });
   }
 
   private onMessage(message: any): void {
@@ -172,6 +204,7 @@ export class DashboardView implements vscode.Disposable {
         <div class="controls">
           <button id="btn-follow" class="btn toggle">Follow</button>
           <button id="btn-translate" class="btn toggle">Translation</button>
+          <button id="btn-debug" class="btn toggle">Debug</button>
           <button id="btn-clear" class="btn ghost">Clear</button>
         </div>
       </header>
@@ -181,6 +214,39 @@ export class DashboardView implements vscode.Disposable {
         <button id="filter-error" class="chip">Errors</button>
         <button id="filter-reasoning" class="chip">Reasoning</button>
         <div class="status" id="status-text">Waiting for events…</div>
+      </section>
+      <section id="debug-panel" class="debug hidden">
+        <div class="debug-header">
+          <div>
+            <div class="debug-title">Debug Panel</div>
+            <div class="debug-sub" id="debug-meta">idle</div>
+          </div>
+          <div class="debug-actions">
+            <button id="btn-debug-clear" class="btn ghost small">Clear Log</button>
+          </div>
+        </div>
+        <div class="debug-grid">
+          <div class="debug-card">
+            <div class="debug-card-title">Watcher</div>
+            <div id="debug-watcher" class="debug-lines"></div>
+          </div>
+          <div class="debug-card">
+            <div class="debug-card-title">Parser</div>
+            <div id="debug-parser" class="debug-lines"></div>
+          </div>
+          <div class="debug-card">
+            <div class="debug-card-title">Sessions</div>
+            <div id="debug-sessions" class="debug-lines"></div>
+          </div>
+          <div class="debug-card">
+            <div class="debug-card-title">Translation</div>
+            <div id="debug-translation" class="debug-lines"></div>
+          </div>
+        </div>
+        <div class="debug-log">
+          <div class="debug-log-title">Activity</div>
+          <div id="debug-log"></div>
+        </div>
       </section>
       <main id="feed" class="feed"></main>
       <div id="resume" class="resume hidden">Resume Follow</div>
@@ -217,4 +283,3 @@ function getNonce(): string {
   }
   return result;
 }
-

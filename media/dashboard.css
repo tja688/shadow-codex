@@ -18,6 +18,7 @@
   --shell: var(--vscode-charts-orange, #d26b3d);
   --error: var(--vscode-charts-red, #b4383e);
   --reason: var(--vscode-charts-purple, #4b5bdc);
+  --skill: var(--vscode-charts-green, #2ea043);
 }
 
 * {
@@ -182,6 +183,7 @@ body {
   position: relative;
   overflow: hidden;
   animation: rise-in 0.35s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .card::before {
@@ -191,6 +193,23 @@ body {
   background: linear-gradient(90deg, rgba(0, 0, 0, 0.08), transparent 30%);
   opacity: 0.35;
   pointer-events: none;
+}
+
+.card::after {
+  content: "";
+  position: absolute;
+  right: -30px;
+  top: -30px;
+  width: 120px;
+  height: 120px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.08), transparent 70%);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
 }
 
 .card-header {
@@ -269,6 +288,11 @@ body {
   color: var(--reason);
 }
 
+.tag.skill {
+  background: rgba(46, 160, 67, 0.18);
+  color: var(--skill);
+}
+
 .translation {
   background: var(--vscode-input-background, rgba(127, 127, 127, 0.12));
   border-radius: 12px;
@@ -330,6 +354,102 @@ body {
 
 .hidden {
   display: none;
+}
+
+.debug {
+  margin: 4px 28px 18px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--card-shadow);
+}
+
+.debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.debug-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.debug-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.debug-actions .btn.small {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.debug-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.debug-card {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.debug-card-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.debug-line {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.debug-log {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  max-height: 200px;
+  overflow: auto;
+}
+
+.debug-log-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.debug-log-row {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 0;
+}
+
+.debug-log-row[data-level="error"] {
+  color: var(--error);
+}
+
+.debug-log-row[data-level="warn"] {
+  color: var(--vscode-charts-yellow, #c08b2d);
 }
 
 @keyframes rise-in {

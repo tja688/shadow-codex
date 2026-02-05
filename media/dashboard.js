@@ -6,19 +6,33 @@ const resumeBtn = document.getElementById("resume");
 const btnFollow = document.getElementById("btn-follow");
 const btnTranslate = document.getElementById("btn-translate");
 const btnClear = document.getElementById("btn-clear");
+const btnDebug = document.getElementById("btn-debug");
+const btnDebugClear = document.getElementById("btn-debug-clear");
 const filterMcp = document.getElementById("filter-mcp");
 const filterShell = document.getElementById("filter-shell");
 const filterError = document.getElementById("filter-error");
 const filterReasoning = document.getElementById("filter-reasoning");
+const debugPanel = document.getElementById("debug-panel");
+const debugMeta = document.getElementById("debug-meta");
+const debugWatcher = document.getElementById("debug-watcher");
+const debugParser = document.getElementById("debug-parser");
+const debugSessions = document.getElementById("debug-sessions");
+const debugTranslation = document.getElementById("debug-translation");
+const debugLogEl = document.getElementById("debug-log");
 
 const translationMap = new Map();
 const itemQueue = [];
 let maxItems = 2000;
 let totalCount = 0;
+let debugLog = [];
+let debugSnapshot = null;
+let debugTranslationStatus = null;
+const maxDebugLog = 200;
 
 const state = {
   follow: true,
   translationEnabled: false,
+  debugOpen: false,
   filters: {
     onlyMcp: false,
     onlyShell: false,
@@ -35,10 +49,12 @@ function setButtonActive(btn, active) {
 function updateUIState() {
   setButtonActive(btnFollow, state.follow);
   setButtonActive(btnTranslate, state.translationEnabled);
+  setButtonActive(btnDebug, state.debugOpen);
   setButtonActive(filterMcp, state.filters.onlyMcp);
   setButtonActive(filterShell, state.filters.onlyShell);
   setButtonActive(filterError, state.filters.onlyError);
   setButtonActive(filterReasoning, state.filters.showReasoning);
+  if (debugPanel) debugPanel.classList.toggle("hidden", !state.debugOpen);
 }
 
 function updateStatusText() {
@@ -96,6 +112,16 @@ btnClear.addEventListener("click", () => {
   totalCount = 0;
   updateStatusText();
   vscode.postMessage({ type: "uiAction", action: "clearFeed" });
+});
+
+btnDebug.addEventListener("click", () => {
+  state.debugOpen = !state.debugOpen;
+  updateUIState();
+});
+
+btnDebugClear.addEventListener("click", () => {
+  debugLog = [];
+  renderDebugLog();
 });
 
 filterMcp.addEventListener("click", () => toggleFilter("onlyMcp"));
@@ -163,6 +189,99 @@ function formatTime(ts) {
   return d.toLocaleTimeString();
 }
 
+function renderLines(el, lines) {
+  if (!el) return;
+  el.innerHTML = "";
+  lines.forEach((line) => {
+    const div = document.createElement("div");
+    div.className = "debug-line";
+    div.textContent = line;
+    el.appendChild(div);
+  });
+}
+
+function formatPathList(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) return "Paths: —";
+  if (paths.length === 1) return `Paths: ${paths[0]}`;
+  return `Paths: ${paths.length} roots`;
+}
+
+function updateDebugPanel(snapshot, translation) {
+  if (snapshot) debugSnapshot = snapshot;
+  if (translation) debugTranslationStatus = translation;
+
+  if (!debugSnapshot) return;
+
+  const metaText = `Last: ${formatTime(debugSnapshot.ts)} · Pending: ${debugSnapshot.pendingFiles ?? 0}`;
+  if (debugMeta) debugMeta.textContent = metaText;
+
+  const watcherLines = [
+    `Active: ${debugSnapshot.watcherActive ? "yes" : "no"}`,
+    formatPathList(debugSnapshot.watcherPaths),
+    debugSnapshot.lastWatcherEvent
+      ? `Last event: ${debugSnapshot.lastWatcherEvent.type} · ${formatTime(debugSnapshot.lastWatcherEvent.ts)}`
+      : "Last event: —"
+  ];
+  if (debugSnapshot.lastWatcherEvent?.filePath) watcherLines.push(`File: ${debugSnapshot.lastWatcherEvent.filePath}`);
+  renderLines(debugWatcher, watcherLines);
+
+  const poll = debugSnapshot.lastPoll;
+  const parserLines = [
+    poll ? `Last file: ${poll.filePath}` : "Last file: —",
+    poll ? `Bytes read: ${poll.bytesRead}` : "Bytes read: —",
+    poll ? `Parsed: ${poll.parsed} · Extracted: ${poll.extracted}` : "Parsed: —",
+    poll ? `Parse errors: ${poll.parseErrors}` : "Parse errors: —",
+    poll ? `Truncated: ${poll.truncated ? "yes" : "no"} · ${formatTime(poll.ts)}` : "Truncated: —"
+  ];
+  renderLines(debugParser, parserLines);
+
+  const sessionLines = [
+    `Sessions: ${debugSnapshot.sessionCount ?? 0}`,
+    debugSnapshot.lastRescanAt ? `Rescan: ${formatTime(debugSnapshot.lastRescanAt)}` : "Rescan: —",
+    `Appended: ${debugSnapshot.totalAppended ?? 0}`,
+    debugSnapshot.lastAppendAt ? `Last append: ${debugSnapshot.lastAppendCount ?? 0} · ${formatTime(debugSnapshot.lastAppendAt)}` : "Last append: —"
+  ];
+  if (debugSnapshot.lastError) {
+    sessionLines.push(`Last error: ${debugSnapshot.lastError}`);
+  }
+  renderLines(debugSessions, sessionLines);
+
+  const tr = debugTranslationStatus;
+  const translationLines = [
+    tr ? `Enabled: ${tr.enabled ? "yes" : "no"}` : "Enabled: —",
+    tr ? `Pending: ${tr.pending} · Running: ${tr.running}` : "Pending: —",
+    tr?.lastSuccessAt ? `Last ok: ${formatTime(tr.lastSuccessAt)}` : "Last ok: —",
+    tr?.lastErrorAt ? `Last error: ${formatTime(tr.lastErrorAt)} · ${tr.lastError ?? ""}` : "Last error: —"
+  ];
+  renderLines(debugTranslation, translationLines);
+}
+
+function appendDebugLog(evt) {
+  if (!evt) return;
+  debugLog.push(evt);
+  if (debugLog.length > maxDebugLog) debugLog.shift();
+  renderDebugLog();
+}
+
+function renderDebugLog() {
+  if (!debugLogEl) return;
+  debugLogEl.innerHTML = "";
+  debugLog.forEach((evt) => {
+    const row = document.createElement("div");
+    row.className = "debug-log-row";
+    row.dataset.level = evt.level || "info";
+    const details = evt.data ? JSON.stringify(evt.data).slice(0, 240) : "";
+    row.textContent = `[${formatTime(evt.ts)}] ${evt.source}: ${evt.message}${details ? " · " + details : ""}`;
+    debugLogEl.appendChild(row);
+  });
+}
+
+function handleDebugPayload(payload, withEvent) {
+  if (!payload || typeof payload !== "object") return;
+  updateDebugPanel(payload.snapshot, payload.translation);
+  if (withEvent && payload.event) appendDebugLog(payload.event);
+}
+
 function renderItem(item) {
   const card = document.createElement("article");
   card.className = "card";
@@ -222,6 +341,7 @@ function renderItem(item) {
       chip.className = "tag";
       if (tag === "mcp" || tag.startsWith("mcp:")) chip.classList.add("mcp");
       if (tag === "shell") chip.classList.add("shell");
+      if (tag === "skill" || tag.startsWith("skill")) chip.classList.add("skill");
       if (tag === "error") chip.classList.add("error");
       if (tag === "reasoning") chip.classList.add("reasoning");
       chip.textContent = tag;
@@ -298,9 +418,16 @@ window.addEventListener("message", (event) => {
   }
   if (msg.type === "translationUpdate") {
     handleTranslationUpdate(msg.payload);
+    return;
+  }
+  if (msg.type === "debug") {
+    handleDebugPayload(msg.payload, true);
+    return;
+  }
+  if (msg.type === "debugStatus") {
+    handleDebugPayload(msg.payload, false);
   }
 });
 
 updateUIState();
 updateStatusText();
-

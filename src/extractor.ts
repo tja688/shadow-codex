@@ -30,7 +30,7 @@ function classifyShellCommand(command: string): { tags: string[]; title: string;
 
   const isSearch = /\b(rg|ripgrep|grep|findstr)\b/i.test(command);
   const isRead = /\b(get-content|cat|type|head|tail)\b/i.test(command);
-  const isSkill = /[\\/]\.agents[\\/](skills)[\\/]/i.test(command);
+  const isSkill = /[\\/]\.(?:agents|codex)[\\/](skills)[\\/]/i.test(command);
 
   if (isSearch) tags.push("search");
   if (isRead) tags.push("file-read");
