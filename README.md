@@ -1,5 +1,8 @@
 # 🌑 Shadow Codex
 
+[![Visual Studio Marketplace](https://img.shields.io/badge/Marketplace-Shadow%20Codex-blueviolet?logo=visual-studio-code)](https://marketplace.visualstudio.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 > **Unified High-Density Event Timeline for Codex Sessions**
 
 `Shadow Codex` is a VS Code extension that provides a read-only, near real-time shadow view for Codex sessions. It monitors `rollout-*.jsonl` files to extract reasoning, tool calls, shell commands, and MCP interactions into a high-signal timeline.
@@ -131,7 +134,9 @@ Translation errors and retries are logged to the output channel:
    - Confirm translated text appears once the service responds.
    - Check the **Shadow Codex** output channel for error details if it fails.
 
-## Known Limitations
-- Call/result pairing is strongest when `call_id` exists; fallback pairing is minimal.
-- Dashboard currently shows only new events (no historical replay).
-- Translation only targets natural language and skips code/JSON blocks.
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+*Built with ❤️ for the Codex community.*
