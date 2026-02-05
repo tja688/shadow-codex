@@ -11,6 +11,8 @@
   --accent: var(--vscode-button-background, #0e639c);
   --accent-fg: var(--vscode-button-foreground, #ffffff);
   --accent-hover: var(--vscode-button-hoverBackground, #1177bb);
+  --stop-bg: var(--vscode-notificationsWarningIcon-foreground, #d67c3a);
+  --stop-bg-hover: var(--vscode-charts-yellow, #c08b2d);
   --focus: var(--vscode-focusBorder, #007acc);
   --badge: var(--vscode-badge-background, #4d4d4d);
   --badge-fg: var(--vscode-badge-foreground, #ffffff);
@@ -335,21 +337,55 @@ body {
   margin-top: 6px;
 }
 
-.resume {
+.floating-actions {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  background: var(--accent);
-  color: var(--accent-fg);
-  padding: 10px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  z-index: 50;
+}
+
+.float-btn {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--vscode-button-secondaryBackground, var(--card));
+  color: var(--text);
+  padding: 8px 14px;
   border-radius: 999px;
   box-shadow: var(--card-shadow);
   cursor: pointer;
-  transition: transform 0.2s ease;
+  font-weight: 600;
+  transition: transform 0.2s ease, background 0.15s ease, box-shadow 0.2s ease;
 }
 
-.resume:hover {
+.float-btn:hover {
   transform: translateY(-2px);
+  background: var(--vscode-button-secondaryHoverBackground, var(--chip));
+}
+
+.float-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.float-btn.small {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.float-btn.resume {
+  background: linear-gradient(135deg, var(--stop-bg), var(--stop-bg-hover));
+  color: var(--accent-fg);
+  border-color: rgba(0, 0, 0, 0.25);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 10px 22px rgba(0, 0, 0, 0.4);
+}
+
+.float-btn.resume:hover {
+  background: linear-gradient(135deg, var(--stop-bg-hover), var(--stop-bg));
 }
 
 .hidden {

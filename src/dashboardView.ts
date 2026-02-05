@@ -254,7 +254,10 @@ export class DashboardView implements vscode.Disposable {
         </div>
       </section>
       <main id="feed" class="feed"></main>
-      <div id="resume" class="resume hidden">Resume Follow</div>
+      <div class="floating-actions">
+        <button id="btn-top" class="float-btn small hidden" title="Back to top">Top</button>
+        <button id="resume" class="float-btn resume hidden">Resume Follow</button>
+      </div>
     </div>
     <script nonce="${nonce}" src="${jsUri}"></script>
   </body>

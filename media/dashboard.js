@@ -3,6 +3,7 @@ const vscode = acquireVsCodeApi();
 const feedEl = document.getElementById("feed");
 const statusEl = document.getElementById("status-text");
 const resumeBtn = document.getElementById("resume");
+const btnTop = document.getElementById("btn-top");
 const btnFollow = document.getElementById("btn-follow");
 const btnTranslate = document.getElementById("btn-translate");
 const btnClear = document.getElementById("btn-clear");
@@ -73,6 +74,7 @@ function shouldPauseFollow() {
 }
 
 function onScroll() {
+  updateTopButton();
   if (!state.follow) return;
   if (shouldPauseFollow()) {
     state.follow = false;
@@ -84,6 +86,12 @@ function onScroll() {
 
 window.addEventListener("scroll", onScroll);
 
+function updateTopButton() {
+  if (!btnTop) return;
+  const doc = document.documentElement;
+  btnTop.classList.toggle("hidden", doc.scrollTop < 200);
+}
+
 resumeBtn.addEventListener("click", () => {
   state.follow = true;
   updateUIState();
@@ -91,6 +99,18 @@ resumeBtn.addEventListener("click", () => {
   vscode.postMessage({ type: "uiAction", action: "toggleFollow", value: true });
   scrollToBottom();
 });
+
+if (btnTop) {
+  btnTop.addEventListener("click", () => {
+    if (state.follow) {
+      state.follow = false;
+      updateUIState();
+      resumeBtn.classList.remove("hidden");
+      vscode.postMessage({ type: "uiAction", action: "toggleFollow", value: false });
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+}
 
 btnFollow.addEventListener("click", () => {
   state.follow = !state.follow;
@@ -436,3 +456,4 @@ window.addEventListener("message", (event) => {
 
 updateUIState();
 updateStatusText();
+updateTopButton();
