@@ -1,0 +1,242 @@
+{
+  "name": "shadow-codex",
+  "displayName": "Shadow Codex",
+  "description": "Read-only shadow view for Codex sessions (rollout JSONL) with high-density event timeline.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "icon": "ColorfulLogo.png",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "shadowCodex",
+          "title": "Shadow Codex",
+          "icon": "logo.png"
+        }
+      ]
+    },
+    "views": {
+      "shadowCodex": [
+        {
+          "id": "shadowCodex.sessionsView",
+          "name": "Sessions",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "shadowCodex.refreshSessions",
+        "title": "Shadow Codex: Refresh Sessions"
+      },
+      {
+        "command": "shadowCodex.openDashboard",
+        "title": "Shadow Codex: Open Dashboard"
+      },
+      {
+        "command": "shadowCodex.openSession",
+        "title": "Shadow Codex: Open Session"
+      },
+      {
+        "command": "shadowCodex.openRolloutFile",
+        "title": "Shadow Codex: Open Rollout File..."
+      },
+      {
+        "command": "shadowCodex.toggleFollowMode",
+        "title": "Shadow Codex: Toggle Follow Mode"
+      },
+      {
+        "command": "shadowCodex.toggleTranslation",
+        "title": "Shadow Codex: Toggle Translation"
+      },
+      {
+        "command": "shadowCodex.exportSessionJson",
+        "title": "Shadow Codex: Export Session (JSON)"
+      },
+      {
+        "command": "shadowCodex.exportSessionMarkdown",
+        "title": "Shadow Codex: Export Session (Markdown)"
+      },
+      {
+        "command": "shadowCodex.searchInSession",
+        "title": "Shadow Codex: Search in Session"
+      },
+      {
+        "command": "shadowCodex.showSessionStats",
+        "title": "Shadow Codex: Show Session Stats"
+      },
+      {
+        "command": "shadowCodex.toggleOnlyMcp",
+        "title": "Shadow Codex: Toggle Filter (Only MCP)"
+      },
+      {
+        "command": "shadowCodex.toggleOnlyShell",
+        "title": "Shadow Codex: Toggle Filter (Only Shell Commands)"
+      },
+      {
+        "command": "shadowCodex.toggleOnlyErrors",
+        "title": "Shadow Codex: Toggle Filter (Only Errors/Warns)"
+      }
+    ],
+    "configuration": {
+      "title": "Shadow Codex",
+      "properties": {
+        "shadowCodex.codexHome": {
+          "type": "string",
+          "default": "",
+          "description": "Override CODEX_HOME. Leave empty to auto-detect (default: ~/.codex)."
+        },
+        "shadowCodex.includeArchivedSessions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also index archived_sessions/**/rollout-*.jsonl."
+        },
+        "shadowCodex.followMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-reveal the newest events in the timeline."
+        },
+        "shadowCodex.uiRefreshIntervalMs": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 200,
+          "description": "Minimum interval between timeline refreshes."
+        },
+        "shadowCodex.watcherDebounceMs": {
+          "type": "number",
+          "default": 500,
+          "minimum": 100,
+          "description": "Debounce for file watcher events."
+        },
+        "shadowCodex.foldThresholdChars": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 200,
+          "description": "Fold long text fields beyond this character count."
+        },
+        "shadowCodex.foldThresholdLines": {
+          "type": "number",
+          "default": 80,
+          "minimum": 10,
+          "description": "Fold long text fields beyond this line count."
+        },
+        "shadowCodex.forceFoldCodeBlocks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Force-fold detected code/script blocks."
+        },
+        "shadowCodex.showAgentMessage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show final assistant messages (AGENT_MSG)."
+        },
+        "shadowCodex.filter.onlyMcp": {
+          "type": "boolean",
+          "default": false,
+          "description": "Only show MCP-related events."
+        },
+        "shadowCodex.filter.onlyShell": {
+          "type": "boolean",
+          "default": false,
+          "description": "Only show shell_command related events."
+        },
+        "shadowCodex.filter.onlyErrors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Only show warnings and errors."
+        },
+        "shadowCodex.dashboard.maxItems": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 200,
+          "description": "Maximum number of items retained in the live dashboard feed."
+        },
+        "shadowCodex.translation.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable local translation for reasoning and natural-language tool output."
+        },
+        "shadowCodex.translation.endpoint": {
+          "type": "string",
+          "default": "http://127.0.0.1:8080/translate",
+          "description": "Translation service endpoint."
+        },
+        "shadowCodex.translation.targetLang": {
+          "type": "string",
+          "default": "Simplified Chinese",
+          "description": "Translation target language."
+        },
+        "shadowCodex.translation.showOriginalCollapsed": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show translated text first and keep original collapsed by default."
+        },
+        "shadowCodex.translation.timeoutMs": {
+          "type": "number",
+          "default": 60000,
+          "minimum": 500,
+          "description": "Translation request timeout (ms)."
+        },
+        "shadowCodex.translation.maxConcurrency": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Max concurrent translation requests."
+        },
+        "shadowCodex.translation.maxQueue": {
+          "type": "number",
+          "default": 200,
+          "minimum": 10,
+          "description": "Max pending translation queue size."
+        },
+        "shadowCodex.translation.maxTextLength": {
+          "type": "number",
+          "default": 8000,
+          "minimum": 200,
+          "description": "Max characters per translation request (longer text will be truncated)."
+        },
+        "shadowCodex.translation.retryCount": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 5,
+          "description": "Retry count when translation fails."
+        },
+        "shadowCodex.translation.retryDelayMs": {
+          "type": "number",
+          "default": 800,
+          "minimum": 100,
+          "description": "Retry backoff base delay (ms)."
+        },
+        "shadowCodex.translation.debug": {
+          "type": "boolean",
+          "default": true,
+          "description": "Log translation request errors to the Shadow Codex output channel."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -p . -w",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "fast-glob": "^3.3.2"
+  }
+}
