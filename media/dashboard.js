@@ -34,14 +34,15 @@ const state = {
   translationEnabled: false,
   debugOpen: false,
   filters: {
-    onlyMcp: false,
-    onlyShell: false,
-    onlyError: false,
+    onlyMcp: true,
+    onlyShell: true,
+    onlyError: true,
     showReasoning: true
   }
 };
 
 function setButtonActive(btn, active) {
+  if (!btn) return;
   if (active) btn.classList.add("active");
   else btn.classList.remove("active");
 }
@@ -114,15 +115,19 @@ btnClear.addEventListener("click", () => {
   vscode.postMessage({ type: "uiAction", action: "clearFeed" });
 });
 
-btnDebug.addEventListener("click", () => {
-  state.debugOpen = !state.debugOpen;
-  updateUIState();
-});
+if (btnDebug) {
+  btnDebug.addEventListener("click", () => {
+    state.debugOpen = !state.debugOpen;
+    updateUIState();
+  });
+}
 
-btnDebugClear.addEventListener("click", () => {
-  debugLog = [];
-  renderDebugLog();
-});
+if (btnDebugClear) {
+  btnDebugClear.addEventListener("click", () => {
+    debugLog = [];
+    renderDebugLog();
+  });
+}
 
 filterMcp.addEventListener("click", () => toggleFilter("onlyMcp"));
 filterShell.addEventListener("click", () => toggleFilter("onlyShell"));
@@ -144,14 +149,14 @@ function applyFilters() {
 }
 
 function passesFilters(item) {
-  if (!state.filters.showReasoning && item.kind === "REASONING") return false;
-  const onlyActive = state.filters.onlyMcp || state.filters.onlyShell || state.filters.onlyError;
+  const onlyActive = state.filters.onlyMcp || state.filters.onlyShell || state.filters.onlyError || state.filters.showReasoning;
   if (!onlyActive) return true;
 
+  const matchReasoning = state.filters.showReasoning && item.kind === "REASONING";
   const matchMcp = state.filters.onlyMcp && item.tags.some((t) => t === "mcp" || t.startsWith("mcp:"));
   const matchShell = state.filters.onlyShell && item.tags.includes("shell");
   const matchError = state.filters.onlyError && (item.severity !== "info" || item.kind === "ERROR");
-  return matchMcp || matchShell || matchError;
+  return matchReasoning || matchMcp || matchShell || matchError;
 }
 
 function appendItems(items) {
@@ -402,9 +407,9 @@ window.addEventListener("message", (event) => {
     if (msg.payload?.state) {
       state.follow = msg.payload.state.follow !== false;
       state.filters = {
-        onlyMcp: Boolean(msg.payload.state.filters?.onlyMcp),
-        onlyShell: Boolean(msg.payload.state.filters?.onlyShell),
-        onlyError: Boolean(msg.payload.state.filters?.onlyError),
+        onlyMcp: msg.payload.state.filters?.onlyMcp !== false,
+        onlyShell: msg.payload.state.filters?.onlyShell !== false,
+        onlyError: msg.payload.state.filters?.onlyError !== false,
         showReasoning: msg.payload.state.filters?.showReasoning !== false
       };
     }

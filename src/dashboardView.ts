@@ -40,6 +40,7 @@ export class DashboardView implements vscode.Disposable {
   static open(context: vscode.ExtensionContext, store: ShadowCodexStore, translator: Translator): DashboardView {
     if (DashboardView.current?.panel) {
       DashboardView.current.panel.reveal(vscode.ViewColumn.Active);
+      DashboardView.current.resetStateDefaults();
       DashboardView.current.postInit();
       return DashboardView.current;
     }
@@ -108,6 +109,10 @@ export class DashboardView implements vscode.Disposable {
     };
     this.postMessage({ type: "init", payload });
     this.postDebugStatus();
+  }
+
+  private resetStateDefaults(): void {
+    this.state = loadState(this.context);
   }
 
   private postMessage(message: unknown): void {
@@ -258,21 +263,23 @@ export class DashboardView implements vscode.Disposable {
 }
 
 function loadState(context: vscode.ExtensionContext): DashboardState {
-  const raw = context.globalState.get<DashboardState>(STATE_KEY);
-  if (raw && raw.filters) return raw;
-  return {
-    follow: true,
-    filters: {
-      onlyMcp: false,
-      onlyShell: false,
-      onlyError: false,
-      showReasoning: true
-    }
-  };
+  return getDefaultState();
 }
 
 function saveState(context: vscode.ExtensionContext, state: DashboardState): void {
   void context.globalState.update(STATE_KEY, state);
+}
+
+function getDefaultState(): DashboardState {
+  return {
+    follow: true,
+    filters: {
+      onlyMcp: true,
+      onlyShell: true,
+      onlyError: true,
+      showReasoning: true
+    }
+  };
 }
 
 function getNonce(): string {
