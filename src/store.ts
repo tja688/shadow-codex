@@ -146,6 +146,10 @@ export class ShadowCodexStore {
     return this.debugSnapshot;
   }
 
+  getLatestSession(): SessionInfo | undefined {
+    return this.sessions[0];
+  }
+
   async start(): Promise<void> {
     await this.rescanSessions();
     await this.startWatcher();
@@ -208,6 +212,14 @@ export class ShadowCodexStore {
     await this.watcher?.close();
 
     const root = this.cfg.codexHome;
+    const rootStat = await fs.stat(root).catch(() => undefined);
+    if (!rootStat || !rootStat.isDirectory()) {
+      this.watcher = undefined;
+      this.updateDebugSnapshot({ watcherActive: false, watcherPaths: [], pendingFiles: this.pendingFiles.size });
+      this.emitDebug("watcher", `Skip watcher: codexHome not found (${root})`, { codexHome: root }, "warn");
+      return;
+    }
+
     const watchPaths = [path.join(root, "sessions", "**", "rollout-*.jsonl")];
     if (this.cfg.includeArchivedSessions) watchPaths.push(path.join(root, "archived_sessions", "**", "rollout-*.jsonl"));
 
@@ -218,6 +230,11 @@ export class ShadowCodexStore {
 
     this.watcher.on("add", (p) => this.enqueueFileChange("add", path.normalize(p)));
     this.watcher.on("change", (p) => this.enqueueFileChange("change", path.normalize(p)));
+    this.watcher.on("error", (e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.updateDebugSnapshot({ lastError: msg, lastErrorAt: new Date().toISOString() });
+      this.emitDebug("watcher", `Watcher error: ${msg}`, { error: msg }, "error");
+    });
     this.updateDebugSnapshot({ watcherActive: true, watcherPaths: watchPaths, pendingFiles: this.pendingFiles.size });
     this.emitDebug("watcher", "Watcher started", { paths: watchPaths });
   }

@@ -8,14 +8,18 @@ import { Translator } from "./translation";
 import { exportSessionJson, exportSessionMarkdown } from "./export";
 import { searchInSession } from "./search";
 import { showSessionStats } from "./stats";
-import { DashboardView } from "./dashboardView";
+import { DashboardViewProvider } from "./dashboardView";
 
 let store: ShadowCodexStore | undefined;
-let dashboard: DashboardView | undefined;
+let dashboardViewProvider: DashboardViewProvider | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const out = vscode.window.createOutputChannel("Shadow Codex");
+  context.subscriptions.push(out);
+  out.appendLine(`[activate] ${new Date().toISOString()}`);
+  await vscode.commands.executeCommand("setContext", "shadowCodex.sessionsViewVisible", false);
+
   store = new ShadowCodexStore(context);
-  await store.start();
 
   let timelineProvider: TimelineDocumentProvider;
   const translator = new Translator(store, () => timelineProvider.refreshAll());
@@ -25,10 +29,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const treeProvider = new SessionsTreeDataProvider(store);
   context.subscriptions.push(vscode.window.registerTreeDataProvider("shadowCodex.sessionsView", treeProvider));
 
+  dashboardViewProvider = new DashboardViewProvider(context, store, translator);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider("shadowCodex.dashboardView", dashboardViewProvider, {
+      webviewOptions: {
+        retainContextWhenHidden: true
+      }
+    })
+  );
+  context.subscriptions.push(dashboardViewProvider);
+
+  void store.start().catch((e: unknown) => {
+    const msg = e instanceof Error ? e.message : String(e);
+    out.appendLine(`[activate] store.start failed: ${msg}`);
+    void vscode.window.showWarningMessage(`Shadow Codex 启动失败：${msg}（仍会显示 Dashboard，但会话索引可能为空）`);
+  });
+
   context.subscriptions.push(
     vscode.commands.registerCommand("shadowCodex.refreshSessions", async () => {
-      await store?.rescanSessions();
-      treeProvider.refresh();
+      try {
+        await store?.rescanSessions();
+        treeProvider.refresh();
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        out.appendLine(`[cmd] refreshSessions failed: ${msg}`);
+        await vscode.window.showErrorMessage(`刷新会话失败：${msg}`);
+      }
     })
   );
 
@@ -37,18 +63,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!store) return;
       const key = sessionKey ?? (await pickSessionKey(store));
       if (!key) return;
-      await store.warmSession(key);
-      const uri = timelineProvider.openSession(key);
-      const doc = await vscode.workspace.openTextDocument(uri);
-      const editor = await vscode.window.showTextDocument(doc, { preview: false });
-      revealEndIfNeeded(editor);
+      await openSessionByKey(key, timelineProvider);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("shadowCodex.openLatestSession", async () => {
+      if (!store) return;
+      const latest = store.getLatestSession();
+      if (!latest) {
+        await vscode.window.showInformationMessage("No sessions found.");
+        return;
+      }
+      await openSessionByKey(latest.sessionKey, timelineProvider);
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("shadowCodex.openDashboard", async () => {
-      if (!store) return;
-      dashboard = DashboardView.open(context, store, translator);
+      await vscode.commands.executeCommand("workbench.view.extension.shadowCodex");
+      try {
+        await vscode.commands.executeCommand("shadowCodex.dashboardView.focus");
+      } catch {
+        await vscode.commands.executeCommand("workbench.action.openView", "shadowCodex.dashboardView");
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("shadowCodex.showSessionsView", async () => {
+      await vscode.commands.executeCommand("setContext", "shadowCodex.sessionsViewVisible", true);
+      try {
+        await vscode.commands.executeCommand("shadowCodex.sessionsView.focus");
+      } catch {
+        await vscode.commands.executeCommand("workbench.action.openView", "shadowCodex.sessionsView");
+      }
     })
   );
 
@@ -154,7 +203,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await store?.reloadAfterConfigChange();
           treeProvider.refresh();
           timelineProvider.refreshAll();
-          dashboard?.refreshConfig();
+          dashboardViewProvider?.refreshConfig();
         })();
       }
     },
@@ -203,4 +252,13 @@ function revealEndIfNeeded(editor: vscode.TextEditor): void {
   const last = editor.document.lineAt(lastLine);
   const range = new vscode.Range(last.range.end, last.range.end);
   editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+}
+
+async function openSessionByKey(key: string, timelineProvider: TimelineDocumentProvider): Promise<void> {
+  if (!store) return;
+  await store.warmSession(key);
+  const uri = timelineProvider.openSession(key);
+  const doc = await vscode.workspace.openTextDocument(uri);
+  const editor = await vscode.window.showTextDocument(doc, { preview: false });
+  revealEndIfNeeded(editor);
 }

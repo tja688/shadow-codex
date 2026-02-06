@@ -13,6 +13,8 @@ const filterMcp = document.getElementById("filter-mcp");
 const filterShell = document.getElementById("filter-shell");
 const filterError = document.getElementById("filter-error");
 const filterReasoning = document.getElementById("filter-reasoning");
+const commandPrimary = document.getElementById("command-primary");
+const commandList = document.getElementById("command-list");
 const debugPanel = document.getElementById("debug-panel");
 const debugMeta = document.getElementById("debug-meta");
 const debugWatcher = document.getElementById("debug-watcher");
@@ -28,6 +30,7 @@ let totalCount = 0;
 let debugLog = [];
 let debugSnapshot = null;
 let debugTranslationStatus = null;
+let dashboardCommands = [];
 const maxDebugLog = 200;
 
 const state = {
@@ -61,6 +64,57 @@ function updateUIState() {
 
 function updateStatusText() {
   statusEl.textContent = `Events: ${totalCount}`;
+}
+
+function runCommand(commandId) {
+  if (!commandId) return;
+  vscode.postMessage({ type: "runCommand", command: commandId });
+}
+
+function renderCommands(commands) {
+  if (!commandPrimary || !commandList) return;
+  dashboardCommands = Array.isArray(commands) ? commands : [];
+
+  commandPrimary.innerHTML = "";
+  commandList.innerHTML = "";
+
+  const primary = dashboardCommands.find((c) => c && c.primary) || dashboardCommands[0];
+  if (primary && primary.id) {
+    const btn = document.createElement("button");
+    btn.className = "cmd-btn primary";
+    btn.textContent = primary.label || primary.id;
+    btn.addEventListener("click", () => runCommand(primary.id));
+    commandPrimary.appendChild(btn);
+
+    if (primary.description) {
+      const desc = document.createElement("div");
+      desc.className = "cmd-desc";
+      desc.textContent = primary.description;
+      commandPrimary.appendChild(desc);
+    }
+  }
+
+  dashboardCommands
+    .filter((c) => c && c.id && c !== primary)
+    .forEach((cmd) => {
+      const row = document.createElement("div");
+      row.className = "cmd-row";
+
+      const btn = document.createElement("button");
+      btn.className = "cmd-btn";
+      btn.textContent = cmd.label || cmd.id;
+      btn.addEventListener("click", () => runCommand(cmd.id));
+      row.appendChild(btn);
+
+      if (cmd.description) {
+        const meta = document.createElement("div");
+        meta.className = "cmd-row-desc";
+        meta.textContent = cmd.description;
+        row.appendChild(meta);
+      }
+
+      commandList.appendChild(row);
+    });
 }
 
 function scrollToBottom() {
@@ -424,6 +478,7 @@ window.addEventListener("message", (event) => {
   if (msg.type === "init") {
     maxItems = msg.payload?.maxItems ?? maxItems;
     state.translationEnabled = Boolean(msg.payload?.translationEnabled);
+    renderCommands(msg.payload?.commands);
     if (msg.payload?.state) {
       state.follow = msg.payload.state.follow !== false;
       state.filters = {

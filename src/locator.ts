@@ -13,6 +13,11 @@ function normalizeAbs(p: string): string {
 }
 
 export async function scanSessions(codexHome: string, includeArchived: boolean): Promise<ScanResult> {
+  const rootStat = await fs.stat(codexHome).catch(() => undefined);
+  if (!rootStat || !rootStat.isDirectory()) {
+    return { sessions: [] };
+  }
+
   const patterns = ["sessions/**/rollout-*.jsonl"];
   if (includeArchived) patterns.push("archived_sessions/**/rollout-*.jsonl");
 
@@ -22,7 +27,7 @@ export async function scanSessions(codexHome: string, includeArchived: boolean):
     onlyFiles: true,
     followSymbolicLinks: false,
     suppressErrors: true
-  });
+  }).catch(() => []);
 
   const files = matched.map(normalizeAbs);
   const bySessionDir = new Map<string, string[]>();

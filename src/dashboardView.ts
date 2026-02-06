@@ -17,42 +17,101 @@ interface DashboardState {
   filters: DashboardFilters;
 }
 
+interface DashboardCommandItem {
+  id: string;
+  label: string;
+  description?: string;
+  primary?: boolean;
+}
+
 const STATE_KEY = "shadowCodex.dashboard.state";
 
-export class DashboardView implements vscode.Disposable {
-  private static current: DashboardView | undefined;
-  private panel: vscode.WebviewPanel | undefined;
+const DASHBOARD_COMMANDS: DashboardCommandItem[] = [
+  {
+    id: "shadowCodex.openLatestSession",
+    label: "🚀 启动 Shadow Codex (最新会话)",
+    description: "立即打开最近活跃的 Web View 时间线视图",
+    primary: true
+  },
+  {
+    id: "shadowCodex.openSession",
+    label: "🔍 选择会话...",
+    description: "从历史记录中选择一个特定会话打开"
+  },
+  {
+    id: "shadowCodex.openRolloutFile",
+    label: "📂 打开本地 Rollout 文件",
+    description: "加载并查看本地的 rollout JSONL 文件"
+  },
+  {
+    id: "shadowCodex.searchInSession",
+    label: "🔍 在会话中搜索",
+    description: "在当前活动会话的时间线中快速搜寻"
+  },
+  {
+    id: "shadowCodex.showSessionStats",
+    label: "📊 查看会话统计",
+    description: "查看当前会话的 Token、耗时等统计信息"
+  },
+  {
+    id: "shadowCodex.refreshSessions",
+    label: "🔄 刷新会话列表",
+    description: "重新扫描本地存储，寻找新的会话记录"
+  },
+  {
+    id: "shadowCodex.exportSessionMarkdown",
+    label: "📝 导出为 Markdown",
+    description: "将当前会话导出为易于阅读的文档"
+  },
+  {
+    id: "shadowCodex.exportSessionJson",
+    label: "💾 导出为 JSON",
+    description: "保存原始数据以供后续分析"
+  },
+  {
+    id: "shadowCodex.toggleFollowMode",
+    label: "🎯 切换跟随模式",
+    description: "自动跳转到时间线最新事件"
+  },
+  {
+    id: "shadowCodex.toggleTranslation",
+    label: "🌐 切换翻译功能",
+    description: "开启/关闭 AI 推理过程的本地翻译"
+  }
+];
+
+class DashboardController implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly webviewDisposables: vscode.Disposable[] = [];
+  private webview: vscode.Webview | undefined;
   private state: DashboardState;
   private debugSnapshot: StoreDebugSnapshot;
 
-  private constructor(
+  constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly store: ShadowCodexStore,
     private readonly translator: Translator
   ) {
     this.state = loadState(context);
     this.debugSnapshot = store.getDebugSnapshot();
-    this.createPanel();
     this.attachListeners();
   }
 
-  static open(context: vscode.ExtensionContext, store: ShadowCodexStore, translator: Translator): DashboardView {
-    if (DashboardView.current?.panel) {
-      DashboardView.current.panel.reveal(vscode.ViewColumn.Active);
-      DashboardView.current.resetStateDefaults();
-      DashboardView.current.postInit();
-      return DashboardView.current;
-    }
-    DashboardView.current = new DashboardView(context, store, translator);
-    return DashboardView.current;
-  }
-
   dispose(): void {
-    this.panel?.dispose();
+    this.detachWebview();
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
-    if (DashboardView.current === this) DashboardView.current = undefined;
+  }
+
+  attachWebview(webview: vscode.Webview): void {
+    this.webview = webview;
+    this.resetWebview();
+  }
+
+  detachWebview(): void {
+    for (const d of this.webviewDisposables) d.dispose();
+    this.webviewDisposables.length = 0;
+    this.webview = undefined;
   }
 
   refreshConfig(): void {
@@ -80,23 +139,13 @@ export class DashboardView implements vscode.Disposable {
     this.disposables.push(dbgSub);
   }
 
-  private createPanel(): void {
-    const panel = vscode.window.createWebviewPanel(
-      "shadowCodex.dashboard",
-      "Shadow Codex",
-      vscode.ViewColumn.Active,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, "media"))]
-      }
-    );
-    this.panel = panel;
+  private resetWebview(): void {
+    if (!this.webview) return;
+    for (const d of this.webviewDisposables) d.dispose();
+    this.webviewDisposables.length = 0;
 
-    panel.onDidDispose(() => this.dispose(), null, this.disposables);
-    panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg), null, this.disposables);
-
-    panel.webview.html = this.getHtml(panel.webview);
+    this.webview.onDidReceiveMessage((msg) => this.onMessage(msg), null, this.webviewDisposables);
+    this.webview.html = this.getHtml(this.webview);
     this.postInit();
   }
 
@@ -105,19 +154,16 @@ export class DashboardView implements vscode.Disposable {
     const payload = {
       maxItems: cfg.dashboardMaxItems,
       translationEnabled: cfg.translationEnabled,
-      state: this.state
+      state: this.state,
+      commands: DASHBOARD_COMMANDS
     };
     this.postMessage({ type: "init", payload });
     this.postDebugStatus();
   }
 
-  private resetStateDefaults(): void {
-    this.state = loadState(this.context);
-  }
-
   private postMessage(message: unknown): void {
-    if (!this.panel) return;
-    void this.panel.webview.postMessage(message);
+    if (!this.webview) return;
+    void this.webview.postMessage(message);
   }
 
   private postDebug(evt?: DebugEvent): void {
@@ -144,6 +190,15 @@ export class DashboardView implements vscode.Disposable {
 
   private onMessage(message: any): void {
     if (!message || typeof message !== "object") return;
+
+    if (message.type === "runCommand") {
+      const commandId = message.command;
+      if (typeof commandId !== "string") return;
+      if (!DASHBOARD_COMMANDS.some((c) => c.id === commandId)) return;
+      void vscode.commands.executeCommand(commandId);
+      return;
+    }
+
     if (message.type !== "uiAction") return;
 
     const action = message.action;
@@ -213,6 +268,11 @@ export class DashboardView implements vscode.Disposable {
           <button id="btn-clear" class="btn ghost">Clear</button>
         </div>
       </header>
+      <section class="commandbar">
+        <div class="commandbar-title">Quick Actions</div>
+        <div id="command-primary" class="command-primary"></div>
+        <div id="command-list" class="command-list"></div>
+      </section>
       <section class="filterbar">
         <button id="filter-mcp" class="chip">MCP</button>
         <button id="filter-shell" class="chip">Shell</button>
@@ -262,6 +322,51 @@ export class DashboardView implements vscode.Disposable {
     <script nonce="${nonce}" src="${jsUri}"></script>
   </body>
 </html>`;
+  }
+}
+
+export class DashboardViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
+  private readonly disposables: vscode.Disposable[] = [];
+  private readonly dashboard: DashboardController;
+
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    store: ShadowCodexStore,
+    translator: Translator
+  ) {
+    this.dashboard = new DashboardController(context, store, translator);
+  }
+
+  resolveWebviewView(webviewView: vscode.WebviewView): void {
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, "media"))]
+    };
+    this.dashboard.attachWebview(webviewView.webview);
+    webviewView.onDidDispose(
+      () => {
+        this.dashboard.detachWebview();
+      },
+      null,
+      this.disposables
+    );
+    webviewView.onDidChangeVisibility(
+      () => {
+        if (webviewView.visible) this.dashboard.refreshConfig();
+      },
+      null,
+      this.disposables
+    );
+  }
+
+  refreshConfig(): void {
+    this.dashboard.refreshConfig();
+  }
+
+  dispose(): void {
+    this.dashboard.dispose();
+    for (const d of this.disposables) d.dispose();
+    this.disposables.length = 0;
   }
 }
 

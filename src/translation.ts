@@ -13,6 +13,15 @@ interface PendingJob {
   text: string;
 }
 
+type JsonValue = null | boolean | number | string | JsonValue[] | { [k: string]: JsonValue };
+
+interface HttpJsonResponse {
+  status: number;
+  headers: http.IncomingHttpHeaders;
+  text: string;
+  json?: JsonValue;
+}
+
 export class Translator {
   private running = 0;
   private readonly queue: PendingJob[] = [];
@@ -79,8 +88,7 @@ export class Translator {
   }
 
   private pump(): void {
-    const maxConcurrency = Math.max(1, Math.min(5, this.store.getConfig().translationMaxConcurrency));
-    if (this.running >= maxConcurrency) return;
+    if (this.running >= 1) return;
     const job = this.queue.shift();
     if (!job) return;
     this.running += 1;
@@ -101,11 +109,7 @@ export class Translator {
 
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       try {
-        const translated = await postJson(job.endpoint, { text: job.text, target_lang: job.targetLang }, cfg.translationTimeoutMs);
-        const out = typeof translated?.translated_text === "string" ? translated.translated_text : undefined;
-        if (!out) {
-          throw new Error("Translation response missing translated_text");
-        }
+        const out = await translateThroughService(job.endpoint, job.text, job.targetLang, cfg.translationTimeoutMs);
         const cache = this.store.getTranslationCache();
         cache[job.key] = out;
         this.store.schedulePersistSave();
@@ -118,7 +122,8 @@ export class Translator {
         this.lastErrorAt = new Date().toISOString();
         this.logDebug(`Translation failed (attempt ${attempt + 1}/${retries + 1}): ${msg}`);
         if (attempt < retries) {
-          const delay = delayBase * Math.pow(2, attempt);
+          const retryAfterMs = getRetryAfterMsFromError(err);
+          const delay = Math.max(retryAfterMs ?? 0, delayBase * Math.pow(2, attempt));
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
@@ -172,21 +177,47 @@ function isValidEndpoint(endpoint: string): boolean {
   }
 }
 
-async function postJson(endpoint: string, body: Record<string, unknown>, timeoutMs: number): Promise<any> {
+function getHeaderFirst(headers: http.IncomingHttpHeaders, key: string): string | undefined {
+  const raw = headers[key.toLowerCase()];
+  if (Array.isArray(raw)) return raw[0];
+  return raw;
+}
+
+function parseRetryAfterSeconds(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  if (Number.isFinite(n) && n >= 0) return n;
+  const ts = Date.parse(value);
+  if (!Number.isFinite(ts)) return undefined;
+  const ms = ts - Date.now();
+  if (ms <= 0) return 0;
+  return ms / 1000;
+}
+
+async function requestJson(
+  method: "GET" | "POST",
+  endpoint: string,
+  body: Record<string, unknown> | undefined,
+  timeoutMs: number
+): Promise<HttpJsonResponse> {
   const url = new URL(endpoint);
-  const json = JSON.stringify(body);
+  const jsonBody = body ? JSON.stringify(body) : "";
   const isHttps = url.protocol === "https:";
   const mod = isHttps ? https : http;
 
   const options: http.RequestOptions = {
-    method: "POST",
+    method,
     hostname: url.hostname,
     port: url.port ? Number(url.port) : isHttps ? 443 : 80,
     path: url.pathname + url.search,
     headers: {
-      "Content-Type": "application/json",
-      "Content-Length": Buffer.byteLength(json),
-      Accept: "application/json"
+      Accept: "application/json",
+      ...(body
+        ? {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(jsonBody)
+          }
+        : {})
     },
     timeout: Math.max(500, timeoutMs)
   };
@@ -198,19 +229,105 @@ async function postJson(endpoint: string, body: Record<string, unknown>, timeout
       res.on("end", () => {
         const status = res.statusCode ?? 0;
         const text = Buffer.concat(chunks).toString("utf8");
-        if (status < 200 || status >= 300) {
-          return reject(new Error(`HTTP ${status}: ${text.slice(0, 500)}`));
-        }
-        const parsed = safeJsonParse<any>(text);
-        if (!parsed.ok) return reject(parsed.error);
-        resolve(parsed.value);
+        const parsed = safeJsonParse<JsonValue>(text);
+        const json = parsed.ok ? parsed.value : undefined;
+        resolve({ status, headers: res.headers, text, json });
       });
     });
     req.on("error", reject);
     req.on("timeout", () => {
       req.destroy(new Error("Translation request timeout"));
     });
-    req.write(json);
+    if (body) req.write(jsonBody);
     req.end();
   });
+}
+
+function getRetryAfterMsFromError(err: unknown): number | undefined {
+  if (typeof err !== "object" || err === null) return undefined;
+  const maybe = err as { retryAfterMs?: unknown };
+  if (typeof maybe.retryAfterMs === "number" && Number.isFinite(maybe.retryAfterMs) && maybe.retryAfterMs >= 0) return maybe.retryAfterMs;
+  return undefined;
+}
+
+function extractTranslatedText(payload: JsonValue | undefined): string | undefined {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const obj = payload as Record<string, JsonValue>;
+  const v = obj["translated_text"];
+  return typeof v === "string" ? v : undefined;
+}
+
+function extractAcceptedJobId(payload: JsonValue | undefined): string | undefined {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const obj = payload as Record<string, JsonValue>;
+  if (obj["status"] !== "accepted") return undefined;
+  const jobId = obj["job_id"];
+  return typeof jobId === "string" ? jobId : undefined;
+}
+
+function buildError(status: number, resp: HttpJsonResponse): Error {
+  let message = `HTTP ${status}`;
+  let retryable = status === 429 || status === 503 || status === 504;
+  let retryAfterMs: number | undefined;
+
+  const headerRetryAfter = parseRetryAfterSeconds(getHeaderFirst(resp.headers, "retry-after"));
+  if (typeof headerRetryAfter === "number") retryAfterMs = Math.max(0, Math.round(headerRetryAfter * 1000));
+
+  if (resp.json && typeof resp.json === "object" && !Array.isArray(resp.json)) {
+    const obj = resp.json as Record<string, JsonValue>;
+    const code = typeof obj["error_code"] === "string" ? obj["error_code"] : undefined;
+    const msg = typeof obj["message"] === "string" ? obj["message"] : undefined;
+    const r = obj["retryable"];
+    if (typeof r === "boolean") retryable = r;
+    message = [message, code, msg].filter((x): x is string => typeof x === "string" && x.length > 0).join(": ");
+  } else if (resp.text) {
+    message = `${message}: ${resp.text.slice(0, 500)}`;
+  }
+
+  const e = new Error(message) as Error & { retryable?: boolean; retryAfterMs?: number };
+  e.retryable = retryable;
+  if (retryAfterMs !== undefined) e.retryAfterMs = retryAfterMs;
+  return e;
+}
+
+async function translateThroughService(endpoint: string, text: string, targetLang: string, timeoutMs: number): Promise<string> {
+  const startedAt = Date.now();
+  const postResp = await requestJson("POST", endpoint, { text, target_lang: targetLang }, timeoutMs);
+  if (postResp.status >= 200 && postResp.status < 300) {
+    const direct = extractTranslatedText(postResp.json);
+    if (typeof direct === "string") return direct;
+
+    const jobId = extractAcceptedJobId(postResp.json);
+    if (jobId) {
+      const url = new URL(endpoint);
+      const base = `${url.protocol}//${url.host}`;
+      const resultUrl = new URL(`/jobs/${jobId}/result`, base).toString();
+      return await pollJobResult(resultUrl, timeoutMs - (Date.now() - startedAt));
+    }
+    throw new Error("Translation response missing translated_text");
+  }
+  throw buildError(postResp.status, postResp);
+}
+
+async function pollJobResult(resultEndpoint: string, timeoutMs: number): Promise<string> {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  let delayMs = 500;
+
+  while (true) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error("Translation async job timeout");
+
+    const resp = await requestJson("GET", resultEndpoint, undefined, Math.min(remaining, 15_000));
+    if (resp.status === 200) {
+      const out = extractTranslatedText(resp.json);
+      if (typeof out === "string") return out;
+      throw new Error("Translation job result missing translated_text");
+    }
+    if (resp.status === 202) {
+      await new Promise((r) => setTimeout(r, Math.min(delayMs, remaining)));
+      delayMs = Math.min(4000, Math.round(delayMs * 1.5));
+      continue;
+    }
+    throw buildError(resp.status, resp);
+  }
 }

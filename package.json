@@ -13,6 +13,26 @@
     "Other"
   ],
   "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:shadowCodex.dashboardView",
+    "onView:shadowCodex.sessionsView",
+    "onCommand:shadowCodex.openDashboard",
+    "onCommand:shadowCodex.showSessionsView",
+    "onCommand:shadowCodex.refreshSessions",
+    "onCommand:shadowCodex.openLatestSession",
+    "onCommand:shadowCodex.openSession",
+    "onCommand:shadowCodex.openRolloutFile",
+    "onCommand:shadowCodex.searchInSession",
+    "onCommand:shadowCodex.showSessionStats",
+    "onCommand:shadowCodex.exportSessionJson",
+    "onCommand:shadowCodex.exportSessionMarkdown",
+    "onCommand:shadowCodex.toggleFollowMode",
+    "onCommand:shadowCodex.toggleTranslation",
+    "onCommand:shadowCodex.toggleOnlyMcp",
+    "onCommand:shadowCodex.toggleOnlyShell",
+    "onCommand:shadowCodex.toggleOnlyErrors"
+  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -25,6 +45,11 @@
     },
     "views": {
       "shadowCodex": [
+        {
+          "id": "shadowCodex.dashboardView",
+          "name": "Dashboard",
+          "icon": "media/icon.svg"
+        },
         {
           "id": "shadowCodex.sessionsView",
           "name": "Sessions",
@@ -42,8 +67,16 @@
         "title": "Shadow Codex: Open Dashboard"
       },
       {
+        "command": "shadowCodex.showSessionsView",
+        "title": "Shadow Codex: Sessions"
+      },
+      {
         "command": "shadowCodex.openSession",
         "title": "Shadow Codex: Open Session"
+      },
+      {
+        "command": "shadowCodex.openLatestSession",
+        "title": "Shadow Codex: Open Latest Session"
       },
       {
         "command": "shadowCodex.openRolloutFile",
@@ -86,6 +119,34 @@
         "title": "Shadow Codex: Toggle Filter (Only Errors/Warns)"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "shadowCodex.openLatestSession",
+          "when": "view == shadowCodex.dashboardView",
+          "icon": "$(rocket)",
+          "group": "navigation@1"
+        },
+        {
+          "command": "shadowCodex.refreshSessions",
+          "when": "view == shadowCodex.dashboardView",
+          "icon": "$(refresh)",
+          "group": "navigation@2"
+        },
+        {
+          "command": "shadowCodex.openDashboard",
+          "when": "view == shadowCodex.sessionsView",
+          "icon": "$(home)",
+          "group": "navigation@1"
+        },
+        {
+          "command": "shadowCodex.refreshSessions",
+          "when": "view == shadowCodex.sessionsView",
+          "icon": "$(refresh)",
+          "group": "navigation@2"
+        }
+      ]
+    },
     "configuration": {
       "title": "Shadow Codex",
       "properties": {
@@ -189,8 +250,8 @@
           "type": "number",
           "default": 1,
           "minimum": 1,
-          "maximum": 5,
-          "description": "Max concurrent translation requests."
+          "maximum": 1,
+          "description": "Max concurrent translation requests (forced to 1 for serial queueing)."
         },
         "shadowCodex.translation.maxQueue": {
           "type": "number",
