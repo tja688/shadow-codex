@@ -44,6 +44,11 @@ const DASHBOARD_COMMANDS: DashboardCommandItem[] = [
     description: "加载并查看本地的 rollout JSONL 文件"
   },
   {
+    id: "shadowCodex.showSessionsView",
+    label: "🗂️ 打开 Sessions 视图",
+    description: "显示分组会话树，快速定位历史会话"
+  },
+  {
     id: "shadowCodex.searchInSession",
     label: "🔍 在会话中搜索",
     description: "在当前活动会话的时间线中快速搜寻"

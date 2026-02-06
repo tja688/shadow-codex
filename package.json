@@ -48,10 +48,12 @@
         {
           "id": "shadowCodex.dashboardView",
           "name": "Dashboard",
+          "type": "webview",
           "icon": "media/icon.svg"
         },
         {
           "id": "shadowCodex.sessionsView",
+          "when": "shadowCodex.sessionsViewVisible",
           "name": "Sessions",
           "icon": "media/icon.svg"
         }
@@ -121,18 +123,6 @@
     ],
     "menus": {
       "view/title": [
-        {
-          "command": "shadowCodex.openLatestSession",
-          "when": "view == shadowCodex.dashboardView",
-          "icon": "$(rocket)",
-          "group": "navigation@1"
-        },
-        {
-          "command": "shadowCodex.refreshSessions",
-          "when": "view == shadowCodex.dashboardView",
-          "icon": "$(refresh)",
-          "group": "navigation@2"
-        },
         {
           "command": "shadowCodex.openDashboard",
           "when": "view == shadowCodex.sessionsView",
